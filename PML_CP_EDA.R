@@ -151,3 +151,4 @@ confusionMatrix(small_pml_training$classe,predict(pml_tree_fit, small_pml_traini
 pml_rf_fit = train(classe ~ ., method = "rf", data = small_pml_training)
 confusionMatrix(small_pml_training$classe,predict(pml_rf_fit, small_pml_training))
 
+
