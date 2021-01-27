@@ -1,0 +1,111 @@
+---
+title: "Practical Machine Learning Peer-Graded Assessment - Weight Lifting Exercise"
+author: "Aaron Schlafly"
+date: "1/25/2021"
+output: html_document
+---
+
+```{r setup, include=FALSE}
+knitr::opts_chunk$set(echo = TRUE)
+```
+
+## Background
+
+This document is prepared as the final assignment for the Practical Machine Learning
+course from Coursera. This work is not an actuarial communication, and it is 
+personal work not related in any way to my employer.
+
+The objective is to design a prediction model to determine the manner in which 20
+exercises are performed by applying a machine-learning algorithm trained on 19,622
+classified exercises.
+
+## Data
+The dataset is licensed under the Creative Commons licenses (CC BY-SA) - citation below  
+
+Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H. 
+**Qualitative Activity Recognition of Weight Lifting Exercises.** 
+Proceedings of 4th International Conference in Cooperation with SIGCHI 
+(Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
+
+The data are read in as variables `pml_testing` and `pml_training`.
+
+```{r read_data}
+pml_training = read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
+dim(pml_training)
+pml_testing = read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
+dim(pml_testing)
+```
+
+According to the paper mentioned above, the researchers used four 9 degrees of freedom Razor
+inertial measurement units (IMU), which provide three-axes
+acceleration, gyroscope and magnetometer data. The sensors were placed on the users'
+glove (`forearm`), armband(`arm`), lumbar belt(`belt`), and dumbbell(`dumbbell`). 
+Data were collected at a short series of timesteps, after which some key metrics were
+calculated. 
+
+When the data set is read in, there are 160 variables, broken down as follows:    
+
+* 100 variables ($8 \times 3 \times 4 + 4 = 96 + 4$) come from the combinations of the following:  
+
+(In addition to the table below, the extra four variables correspond 
+to `var_total_accel_`[*location*] for the four sensor locations)  
+
+| Calculations (8) | Euler Angles (3)| Sensor Locations (4)|  
+|:----------------:|:---------------:|:-------------------:|  
+|`kurtosis`|`roll`|`belt`|  
+|`skewness`|`pitch`|`arm`|  
+|`max`|`yaw`|`dumbbell`|  
+|`min`||`forearm`|  
+|`amplitude`|||
+|`var`|||
+|`avg`|||
+|`stddev`|||
+
+* 16 variables ($(3 + 1) \times 4 = 16$) come from combinations of the following:  
+
+| Euler Angles (3+1) | Sensor Locations (4)|  
+|:----------------:|:---------------:|  
+|`roll`|`belt`|  
+|`pitch`|`arm`|  
+|`yaw`|`dumbbell`|  
+|`total`|`forearm`|  
+
+* 36 variables ($3 \times 4 \times 3 = 36$) come from combinations of the following:  
+
+| Sensors (3) | Sensor Locations (4)| Dimensions (3) |  
+|:----------------:|:---------------:|:-------------------:|  
+|`accel`|`belt`|`x`|  
+|`gyros`|`arm`|`y`|  
+|`magnet`|`dumbbell`|`z`|  
+||`forearm`||  
+
+* That leaves 8 remaining variables as follows:  
+  + 1: `X` refers to the observation number.  
+  + 1:  `user_name` identifies the participant
+  + 3: `raw_timestamp_part_1`, `raw_timestamp_part_2`, and `cvtd_timestamp` are time variables  
+  + 2: `new_window` and `num_window` are used to distinguish observation windows  
+  + 1: The final variable is different between the two files:  
+    - In `pml_training`, the variable `classe` is the classification provided in order to train the data.
+    - In `pml_testing`, the variable `problem_id` is the identifier (1-20) for each of the 20 points to be classified
+
+One variable is mis-labeled: the variable `skewness.pitch.belt` is missing, while
+`skewness.roll.belt` appears alongside `skewness.roll.belt.1`. After examining the data,
+based on the location of the variable in the file as well as the consistency with 
+`kurtosis.picth.belt` [sic], I conclude that `skewness.roll.belt.1` should be 
+renamed `skewness.pitch.belt`.  
+```{r fix_naming}
+names(pml_training)[grep("skewness_roll_belt.1",names(pml_training))] = "skewness_pitch_belt"
+names(pml_testing)[grep("skewness_roll_belt.1",names(pml_testing))] = "skewness_pitch_belt"
+```
+
+Because the dataset includes both the raw data as well as the summarized metrics calculated
+from those raw data, I will only use the summarized data. The summarized data 
+only occur when `new_window` is equal to `yes`.
+
+```{r filter_training_yes}
+new_pml_training = pml_training[pml_training$new_window == "yes",]
+```
+
+
+## Data exploration
+
