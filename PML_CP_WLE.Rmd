@@ -152,6 +152,7 @@ is split into training data and testing data, so that the file `"pml-testing.csv
 becomes the validation file.
 
 ```{r split_training_data}
+set.seed(32343)
 inTrain = createDataPartition(y = pml_small_training$classe, p = 0.7, list = FALSE)
 pml_train = pml_small_training[inTrain,]
 pml_test = pml_small_training[-inTrain,]
@@ -183,6 +184,7 @@ system.time({pml_tree_fit = train(classe ~ ., data = pml_train, method = "rpart"
 print(pml_tree_fit$finalModel)
 fancyRpartPlot(pml_tree_fit$finalModel)
 confusionMatrix(pml_train$classe, predict(pml_tree_fit, pml_train))
+confusionMatrix(pml_test$classe, predict(pml_tree_fit, pml_test))
 ```
 
 The method seems to do a reasonably good job of correctly identifying "E" type 

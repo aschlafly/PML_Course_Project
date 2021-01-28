@@ -56,30 +56,47 @@ featurePlot(x = pml_small_training[,c("total_accel_belt","total_accel_arm","tota
             y = pml_small_training$classe, plot = "pairs", alpha = 0.1, size = 0.2)
 
 
+# Split training data into training and testing data.
+
+set.seed(32343)
+inTrain = createDataPartition(y = pml_small_training$classe, p = 0.7, list = FALSE)
+pml_train = pml_small_training[inTrain,]
+pml_test = pml_small_training[-inTrain,]
+
+
+# Train models
 pml_pc = prcomp(pml_small_training[,-pml_pv_count])
 plot(pml_pc$x[,1], pml_pc$x[,2], col = pml_small_training$classe, cex = 0.2)
 
-pml_pc_fit = train(pml_small_training$classe~ ., method = "glm", preProcess="pca", data = pml_small_training)
-confusionMatrix(pml_small_training$classe, predict(pml_pc_fit, pml_small_training))
+pml_pc_fit = train(pml_train$classe~ ., method = "glm", preProcess="pca", data = pml_train)
+confusionMatrix(pml_train$classe, predict(pml_pc_fit, pml_train))
 
-pml_tree_fit = train(classe ~ ., data = pml_small_training, method = "rpart")
+
+system.time({pml_tree_fit = train(classe ~ ., data = pml_train, method = "rpart")})
 print(pml_tree_fit$finalModel)
 fancyRpartPlot(pml_tree_fit$finalModel)
-confusionMatrix(pml_small_training$classe, predict(pml_tree_fit, pml_small_training))
+confusionMatrix(pml_train$classe, predict(pml_tree_fit, pml_train))
+confusionMatrix(pml_test$classe, predict(pml_tree_fit, pml_test))
 
-pml_rf_fit = train(classe ~ ., method = "rf", data = pml_small_training)
-confusionMatrix(pml_small_training$classe,predict(pml_rf_fit, pml_small_training))
 
-system.time({pml_gbm_fit = train(classe~., method = "gbm", data = pml_small_training, verbose = FALSE)})
+library(doMC)
+registerDoMC(cores = 4)
+
+system.time({pml_rf_fit = train(classe ~ ., method = "rf", data = pml_train)})
+confusionMatrix(pml_train$classe,predict(pml_rf_fit, pml_train))
+confusionMatrix(pml_test$classe, predict(pml_rf_fit, pml_test))
+
+
+system.time({pml_gbm_fit = train(classe~., method = "gbm", data = pml_train, verbose = FALSE)})
 print(pml_gbm_fit)
-confusionMatrix(pml_small_training$classe,predict(pml_gbm_fit, pml_small_training))
+confusionMatrix(pml_train$classe,predict(pml_gbm_fit, pml_train))
+confusionMatrix(pml_test$classe,predict(pml_gbm_fit, pml_test))
 
 
 #Don't read in pml_testing until later
 #pml_testing  = read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
 pml_testing  = read.csv("pml-testing.csv")
 
-predict(pml_pc_fit, pml_testing)
 predict(pml_tree_fit, pml_testing)
 predict(pml_rf_fit, pml_testing)
 predict(pml_gbm_fit, pml_testing)
