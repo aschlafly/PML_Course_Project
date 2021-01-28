@@ -15,9 +15,10 @@ This document is prepared as the final assignment for the Practical Machine Lear
 course from Coursera. This work is not an actuarial communication, and it is 
 personal work not related in any way to my employer.
 
-The objective is to design a prediction model to determine the manner in which 20
-exercises are performed by applying a machine-learning algorithm trained on 19,622
+The objective is to design a prediction model to classify the manner in which 20
+exercises were performed based on a machine-learning algorithm trained on 19,622
 classified exercises.
+
 
 ## Data
 The dataset is licensed under the Creative Commons licenses (CC BY-SA) - citation below  
@@ -27,13 +28,13 @@ Velloso, E.; Bulling, A.; Gellersen, H.; Ugulino, W.; Fuks, H.
 Proceedings of 4th International Conference in Cooperation with SIGCHI 
 (Augmented Human '13) . Stuttgart, Germany: ACM SIGCHI, 2013.
 
-The data are read in as variables `pml_testing` and `pml_training`.
+Here I read in the training data only. I wait until later to read in the testing data to avoid confusion
+and to ensure the testing data aren't used before the best model is chosen based on 
+the training data.
 
 ```{r read_data}
 pml_training = read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-training.csv"))
 dim(pml_training)
-pml_testing = read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
-dim(pml_testing)
 ```
 
 According to the paper mentioned above, the researchers used four 9 degrees of freedom Razor
@@ -42,6 +43,15 @@ acceleration, gyroscope and magnetometer data. The sensors were placed on the us
 glove (`forearm`), armband(`arm`), lumbar belt(`belt`), and dumbbell(`dumbbell`). 
 Data were collected at a short series of timesteps, after which some key metrics were
 calculated. 
+
+
+The manner is classified into one correct exercise and four common mistakes, as follows:  
+
+Class A: exactly according to specification  
+Class B: throwing the elbows to the front  
+Class C: lifting the dumbbell only halfway  
+Class D: lowering the dumbbell only halfway  
+Class E: throwing the hips to the front  
 
 When the data set is read in, there are 160 variables, broken down as follows:    
 
@@ -88,24 +98,130 @@ to `var_total_accel_`[*location*] for the four sensor locations)
     - In `pml_training`, the variable `classe` is the classification provided in order to train the data.
     - In `pml_testing`, the variable `problem_id` is the identifier (1-20) for each of the 20 points to be classified
 
-One variable is mis-labeled: the variable `skewness.pitch.belt` is missing, while
-`skewness.roll.belt` appears alongside `skewness.roll.belt.1`. After examining the data,
-based on the location of the variable in the file as well as the consistency with 
-`kurtosis.picth.belt` [sic], I conclude that `skewness.roll.belt.1` should be 
-renamed `skewness.pitch.belt`.  
-```{r fix_naming}
-names(pml_training)[grep("skewness_roll_belt.1",names(pml_training))] = "skewness_pitch_belt"
-names(pml_testing)[grep("skewness_roll_belt.1",names(pml_testing))] = "skewness_pitch_belt"
+The first set of 100 variables only exists when a stream of observations is 
+summarized. Those variables are not reliably available for predition. Therefore,
+only the 16 `roll_`, `pitch_`, and `yaw_` variables plus the 36 `accel_`, `gyros_`, 
+`magnet_`, and `total` variables will be used for predicting. Additionally, the eight remaining
+variables are identifiers which are not relevant for new data which would come in.
+
+Looking at the variables with near zero or zero variance, the list corresponds to the 
+100 summary variables.  
+
+```{r nearzerovariance}
+sort(nearZeroVar(pml_training, names = TRUE))
 ```
 
-Because the dataset includes both the raw data as well as the summarized metrics calculated
-from those raw data, I will only use the summarized data. The summarized data 
-only occur when `new_window` is equal to `yes`.
+Based on this, the study will focus on the 16 + 36 other variables.  
 
-```{r filter_training_yes}
-new_pml_training = pml_training[pml_training$new_window == "yes",]
+```{r make_small_pml_training}
+pml_grep_pattern = "^roll_|^pitch_|^yaw|^total|^accel|^gyros|^magnet|classe|problem_id"
+pml_pred_vars = grep(pml_grep_pattern, names(pml_training), value = TRUE)
+pml_pv_count = length(pml_pred_vars)
+pml_small_training = pml_training[,grep(pml_grep_pattern, names(pml_training))]
+pml_small_training$classe = as.factor(pml_small_training$classe)
+sort(names(pml_small_training))
 ```
+
 
 
 ## Data exploration
+
+In order to determine whether there are any obvious candidates for variables to focus 
+on, I looked at the distributions of groups of variables, split by classification.
+
+```{r data_exploration}
+tot_accels = pml_small_training[,c(grep("^total_accel_|classe", names(pml_small_training)))]
+tot_accels %>% gather("location","total_accel",1:4) %>%
+    ggplot(aes(x = total_accel, col = classe)) +
+    geom_freqpoly() + facet_wrap(.~location, ncol = 2)
+
+accels = pml_small_training[,c(grep("^accel_|classe", names(pml_small_training)))]
+accels %>% gather("location","accel",1:12) %>%
+    ggplot(aes(x = accel, col = classe)) +
+    geom_freqpoly() + facet_wrap(.~location, ncol = 3)
+
+```
+
+I also looked at the 12 plots for the gyroscope and magenetometer, and the plots showed
+even less distinction between classes
+
+## Cross Validation
+Although the assignment is split into training and testing data, in order to 
+better understand the accuracy and the potential of over-fitting, the training data
+is split into training data and testing data, so that the file `"pml-testing.csv"` 
+becomes the validation file.
+
+```{r split_training_data}
+inTrain = createDataPartition(y = pml_small_training$classe, p = 0.7, list = FALSE)
+pml_train = pml_small_training[inTrain,]
+pml_test = pml_small_training[-inTrain,]
+```
+
+
+## Model Selection
+
+Since the data exploration above didn't identify any obvious candidates as variables
+for a linear and given that multiple sensors working in multiple dimensions, I tested whether there 
+are good combinations of variables which are better predictors. I pre-processed the data
+with principal component analysis (PCA) and plotted the two strongest components to see 
+whether the classes can be separated. Looking at the plot, the data seem to remain
+thoroughly mixed even after rotating the vectors.
+
+```{r pml_pca_visualization}
+pml_pc = prcomp(pml_train[,-pml_pv_count])
+plot(pml_pc$x[,1], pml_pc$x[,2], col = pml_train$classe, cex = 0.2)
+```
+
+Based on this, the linear model with principal components model was skipped.
+
+Next I tried to use a tree to allow for more complex classification. Below it can be seen that using `rpart`
+for a simpler tree produces understandable results, but is a poor predictor for the 
+classification.  
+
+```{r pml_rpart}
+system.time({pml_tree_fit = train(classe ~ ., data = pml_train, method = "rpart")})
+print(pml_tree_fit$finalModel)
+fancyRpartPlot(pml_tree_fit$finalModel)
+confusionMatrix(pml_train$classe, predict(pml_tree_fit, pml_train))
+```
+
+The method seems to do a reasonably good job of correctly identifying "E" type 
+problems, but cannot distinguish "D" type at all. All types of exercises are commonly 
+called correct, "A"-type exercises.
+
+For the next attempt, I trained using random forests. The major concern with this
+is the time it takes. In order to speed things up, I used the `doMC` package to
+allow multiple cores to be used, reducing the time.
+```{r pml_rf}
+library(doMC)
+registerDoMC(cores = 4)
+
+system.time({pml_rf_fit = train(classe ~ ., method = "rf", data = pml_train)})
+confusionMatrix(pml_train$classe,predict(pml_rf_fit, pml_train))
+confusionMatrix(pml_test$classe, predict(pml_rf_fit, pml_test))
+```
+
+The results work very well, making perfect predictions. However, it is not clear whether
+there is overfitting going on. 
+
+Finally, a gradient boosing machine method is used.
+```{r pml_gbm}
+system.time({pml_gbm_fit = train(classe~., method = "gbm", data = pml_train, verbose = FALSE)})
+print(pml_gbm_fit)
+confusionMatrix(pml_train$classe,predict(pml_gbm_fit, pml_train))
+confusionMatrix(pml_test$classe,predict(pml_gbm_fit, pml_test))
+```
+
+The model runs more quickly, but the accuracy is less. 
+
+
+
+## Read in training data
+```{r read_training}
+pml_testing = read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
+dim(pml_testing)
+
+
+```
+
 
