@@ -61,7 +61,7 @@ featurePlot(x = pml_small_training[,c("total_accel_belt","total_accel_arm","tota
 set.seed(32343)
 inTrain = createDataPartition(y = pml_small_training$classe, p = 0.7, list = FALSE)
 pml_train = pml_small_training[inTrain,]
-pml_test = pml_small_training[-inTrain,]
+pml_validation = pml_small_training[-inTrain,]
 
 
 # Train models
@@ -76,7 +76,7 @@ system.time({pml_tree_fit = train(classe ~ ., data = pml_train, method = "rpart"
 print(pml_tree_fit$finalModel)
 fancyRpartPlot(pml_tree_fit$finalModel)
 confusionMatrix(pml_train$classe, predict(pml_tree_fit, pml_train))
-confusionMatrix(pml_test$classe, predict(pml_tree_fit, pml_test))
+confusionMatrix(pml_validation$classe, predict(pml_tree_fit, pml_validation))
 
 
 library(doMC)
@@ -84,13 +84,13 @@ registerDoMC(cores = 4)
 
 system.time({pml_rf_fit = train(classe ~ ., method = "rf", data = pml_train)})
 confusionMatrix(pml_train$classe,predict(pml_rf_fit, pml_train))
-confusionMatrix(pml_test$classe, predict(pml_rf_fit, pml_test))
+confusionMatrix(pml_validation$classe, predict(pml_rf_fit, pml_validation))
 
 
 system.time({pml_gbm_fit = train(classe~., method = "gbm", data = pml_train, verbose = FALSE)})
 print(pml_gbm_fit)
 confusionMatrix(pml_train$classe,predict(pml_gbm_fit, pml_train))
-confusionMatrix(pml_test$classe,predict(pml_gbm_fit, pml_test))
+confusionMatrix(pml_validation$classe,predict(pml_gbm_fit, pml_validation))
 
 
 #Don't read in pml_testing until later

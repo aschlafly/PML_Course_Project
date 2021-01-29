@@ -7,6 +7,9 @@ output: html_document
 
 ```{r setup, include=FALSE}
 knitr::opts_chunk$set(echo = TRUE)
+library(caret)
+library(tidyverse)
+library(rattle)
 ```
 
 ## Background
@@ -148,14 +151,15 @@ even less distinction between classes
 ## Cross Validation
 Although the assignment is split into training and testing data, in order to 
 better understand the accuracy and the potential of over-fitting, the training data
-is split into training data and testing data, so that the file `"pml-testing.csv"` 
-becomes the validation file.
+is split into training data and validation data. The models are then trained on 
+the `pml_train` subset of `"pml_training.csv"` and the `pml_valiation` will be used 
+to better understand the accuracy when applied to a set other than the training set. 
 
 ```{r split_training_data}
 set.seed(32343)
 inTrain = createDataPartition(y = pml_small_training$classe, p = 0.7, list = FALSE)
 pml_train = pml_small_training[inTrain,]
-pml_test = pml_small_training[-inTrain,]
+pml_validation = pml_small_training[-inTrain,]
 ```
 
 
@@ -169,7 +173,7 @@ whether the classes can be separated. Looking at the plot, the data seem to rema
 thoroughly mixed even after rotating the vectors.
 
 ```{r pml_pca_visualization}
-pml_pc = prcomp(pml_train[,-pml_pv_count])
+pml_pc = prcomp(pml_validation[,-pml_pv_count])
 plot(pml_pc$x[,1], pml_pc$x[,2], col = pml_train$classe, cex = 0.2)
 ```
 
@@ -184,7 +188,7 @@ system.time({pml_tree_fit = train(classe ~ ., data = pml_train, method = "rpart"
 print(pml_tree_fit$finalModel)
 fancyRpartPlot(pml_tree_fit$finalModel)
 confusionMatrix(pml_train$classe, predict(pml_tree_fit, pml_train))
-confusionMatrix(pml_test$classe, predict(pml_tree_fit, pml_test))
+confusionMatrix(pml_validation$classe, predict(pml_tree_fit, pml_validation))
 ```
 
 The method seems to do a reasonably good job of correctly identifying "E" type 
@@ -200,30 +204,54 @@ registerDoMC(cores = 4)
 
 system.time({pml_rf_fit = train(classe ~ ., method = "rf", data = pml_train)})
 confusionMatrix(pml_train$classe,predict(pml_rf_fit, pml_train))
-confusionMatrix(pml_test$classe, predict(pml_rf_fit, pml_test))
+confusionMatrix(pml_validation$classe, predict(pml_rf_fit, pml_validation))
 ```
 
-The results work very well, making perfect predictions. However, it is not clear whether
-there is overfitting going on. 
+The results work very well, making perfect predictions. When applied to the testing
+data, the accuracy remains very high, but is, obviously, less than the accuracy
+for the model applied to the training data.
 
 Finally, a gradient boosing machine method is used.
 ```{r pml_gbm}
 system.time({pml_gbm_fit = train(classe~., method = "gbm", data = pml_train, verbose = FALSE)})
 print(pml_gbm_fit)
 confusionMatrix(pml_train$classe,predict(pml_gbm_fit, pml_train))
-confusionMatrix(pml_test$classe,predict(pml_gbm_fit, pml_test))
+confusionMatrix(pml_validation$classe,predict(pml_gbm_fit, pml_validation))
 ```
 
-The model runs more quickly, but the accuracy is less. 
+The model runs more quickly than it did in the case of the random forest, 
+but the accuracy is slightly less, both for the training data as 
+well as for the testing data.
 
+The best prediction model seems to be the random forest version, so this will
+be the version that I use to make predictions on the data in the file `"pml_testing.csv"`.  
 
+**I predict that the accuracy will be similar to what was observed for the model 
+applied to the validation data, i.e. 99.6% or so.
 
 ## Read in training data
 ```{r read_training}
 pml_testing = read.csv(url("https://d396qusza40orc.cloudfront.net/predmachlearn/pml-testing.csv"))
 dim(pml_testing)
-
-
 ```
 
+My official prediction for the classification is based on the random forest model, 
+as follows:
+
+```{r predict_test_rf}
+(test_predict_rf = predict(pml_rf_fit, pml_testing))
+```
+
+To check the consistency with the prediction from other models, I also produced the 
+predictions using the tree and the gradient boosting machine: 
+
+```{r}
+rbind(rf = predict(pml_rf_fit, pml_testing),
+      gbm = predict(pml_gbm_fit, pml_testing),
+      tree = predict(pml_tree_fit, pml_testing))
+```
+
+The GBM, which also had a high degree of accuracy, produces identical predictions, 
+which is reassuring, but the tree, which performed poorly, gives different prections, 
+as expected.
 
